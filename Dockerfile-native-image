@@ -1,0 +1,89 @@
+# FROM ghcr.io/graalvm/native-image-community:21-muslib
+
+# # FROM maven:3.9.5-eclipse-temurin-21-alpine
+
+# # Set the working directory inside the container
+# WORKDIR /app
+
+# # Copy the project's pom.xml and initial source code to the container
+# COPY pom.xml .
+
+# COPY . . 
+
+# RUN ./mvnw dependency:go-offline
+
+# COPY src ./src
+
+# # # Run Maven package phase, which builds the application and dependencies
+# # RUN ./mvnw dependency:go-offline
+
+
+# # RUN ./mvnw -Pnative -Dmaven.test.skip=true spring-boot:build-image
+
+# RUN ./mvnw clean package -Pnative
+
+# RUN cd target
+
+# RUN ls
+
+
+
+ARG SERVICE_NAME=hello-world
+
+# FROM ghcr.io/graalvm/native-image-community:21-muslib AS build-aot
+
+# FROM ghcr.io/graalvm/jdk-community:21-ol8 AS build-aot
+
+FROM ghcr.io/graalvm/graalvm-ce:latest AS build-aot
+
+RUN gu install native-image
+
+# change if needed
+ENV MAVEN_OPTS='-Xmx6g'
+
+# copy the pom
+COPY ./pom.xml ./pom.xml
+
+COPY . .
+
+# get the dependencies
+RUN ./mvnw dependency:go-offline -B
+
+# copy other files
+COPY src ./src/
+
+# TODO remove skip test
+RUN ./mvnw -X -Dmaven.test.skip=true -Pnative native:compile
+
+
+FROM ubuntu:latest as compress
+
+ARG SERVICE_NAME
+
+RUN  apt-get update -y
+
+RUN  apt-get install -y upx
+
+WORKDIR /home
+
+COPY --chmod=0755 --from=build-aot /app/target/${SERVICE_NAME} .
+
+RUN upx --lzma --best /home/${SERVICE_NAME} -o /home/${SERVICE_NAME}.upx
+
+
+
+FROM alpine:latest
+
+ARG SERVICE_NAME
+
+ENV SERVICE_PATH /home/${SERVICE_NAME}.upx
+
+
+COPY --from=compress /home/${SERVICE_NAME}.upx /home/
+
+ENTRYPOINT [$SERVICE_PATH]
+
+
+
+
+
